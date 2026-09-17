@@ -83,7 +83,25 @@ export async function assignRobot(deploymentId: string, formData: FormData) {
   const assignmentStart = String(formData.get("assignmentStart") || new Date().toISOString().slice(0, 10));
   if (!robotId) return;
 
-  // End any existing open assignment for this robot before creating a new one.
+  // The "assign" dropdown only lists available/idle robots, but that's a UI convenience,
+  // not a security boundary — the action itself must re-check, since a robot's real status
+  // (operating elsewhere, in repair, retired...) can only be trusted from the database, not
+  // from whatever robotId a request happens to submit. A robot currently `operating` on
+  // another deployment already fails this check, so it doubles as double-booking prevention:
+  // reassigning it requires an explicit Unassign first, which is the "defined allocation
+  // rule" — not a silent reassignment that quietly drops it from its current deployment.
+  const [robot] = await db.select().from(robots).where(eq(robots.id, robotId));
+  if (!robot) throw new Error("Robot not found.");
+  if (robot.status !== "available" && robot.status !== "idle") {
+    throw new Error(
+      `Cannot assign ${robot.robotCode}: it is currently "${robot.status}", not available. ` +
+        `Unassign it from its current deployment first if this reassignment is intentional.`
+    );
+  }
+
+  // Defensive cleanup only — the status gate above is what actually prevents double-booking.
+  // This just closes any stray open assignment row that could exist if a robot's status was
+  // ever changed directly (e.g. via the Robots page) without going through Unassign.
   await db
     .update(robotAssignments)
     .set({ assignmentEnd: assignmentStart })

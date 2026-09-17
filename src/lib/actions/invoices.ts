@@ -47,6 +47,18 @@ export async function recordPayment(invoiceId: string, formData: FormData) {
   const [inv] = await db.select().from(invoices).where(eq(invoices.id, invoiceId));
   if (!inv) throw new Error("Invoice not found");
 
+  // No credit-note / overpayment-as-credit workflow exists yet, so a payment that would push
+  // amountPaid past the invoice's own amount must be rejected outright rather than silently
+  // capped (capping would discard the entered figure without telling the user why, which can
+  // mask a genuine data-entry error) — see acceptance test 7's payment-cap requirement.
+  const remainingBalance = inv.amount - inv.amountPaid;
+  if (parsed.amountPaid > remainingBalance + 0.01) {
+    throw new Error(
+      `Payment of $${parsed.amountPaid.toLocaleString()} exceeds the remaining balance of $${remainingBalance.toLocaleString()} on this invoice. ` +
+        `Overpayments aren't supported yet — record a payment up to the remaining balance, or void/adjust the invoice first.`
+    );
+  }
+
   const totalPaid = inv.amountPaid + parsed.amountPaid;
   const status = totalPaid >= inv.amount ? "paid" : totalPaid > 0 ? "partial" : inv.status;
 

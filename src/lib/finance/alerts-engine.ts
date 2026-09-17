@@ -14,6 +14,14 @@ export interface AlertCandidate {
   customerId?: string;
   deploymentId?: string;
   robotId?: string;
+  /**
+   * Extra uniqueness for alert types where deploymentId+robotId alone aren't enough to tell
+   * two candidates apart (e.g. one overdue-invoice alert per invoice, not per deployment —
+   * an invoice alert has no deploymentId/robotId at all). When set, the sync's dedup key uses
+   * this instead of deploymentId/robotId; omit it when alertType+deploymentId+robotId is
+   * already unique on its own.
+   */
+  dedupKey?: string;
   title: string;
   description: string;
   recommendedAction: string;
@@ -160,6 +168,7 @@ export function evaluateArAlerts(rows: ArAgingRow[]): AlertCandidate[] {
       severity: (row.bucket === "90+" ? "critical" : row.bucket === "61-90" ? "high" : "medium") as AlertSeverity,
       module: "billing",
       deploymentId: undefined,
+      dedupKey: row.invoiceId,
       title: `${row.customerName}: invoice ${row.invoiceNumber} overdue (${row.bucket} days)`,
       description: `${fmtCurrency(row.outstanding)} outstanding on invoice ${row.invoiceNumber}, due ${row.dueDate}.`,
       recommendedAction: "Send invoice follow-up and escalate to the contract owner.",

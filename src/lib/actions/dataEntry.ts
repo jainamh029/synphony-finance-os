@@ -10,28 +10,46 @@ import { requireWriteAccess } from "@/lib/auth/session";
 const OPS_ROLES = ["admin", "operations", "finance"] as const;
 const FINANCE_ROLES = ["admin", "finance"] as const;
 
+// A bare `.min(1)` on a date field only rejects empty strings — a CSV row with
+// date="not-a-date" would pass that check and get written straight into a text column,
+// silently corrupting every downstream calculation that reads it as a real date. Manual
+// entry forms are naturally protected by the browser's <input type="date"> widget, but CSV
+// import accepts arbitrary text, so schemas shared with CSV import need this explicit check.
+const isoDate = z.string().refine((v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && !Number.isNaN(new Date(v).getTime()), {
+  message: "must be a valid date in YYYY-MM-DD format",
+});
+
 // ---------------------------------------------------------------------------
 // Manual entry
 // ---------------------------------------------------------------------------
 
-const metricSchema = z.object({
-  date: z.string().min(1),
-  robotId: z.string().min(1),
-  deploymentId: z.string().min(1),
-  availableHours: z.coerce.number().nonnegative(),
-  activeHours: z.coerce.number().nonnegative(),
-  productiveHours: z.coerce.number().nonnegative(),
-  downtimeHours: z.coerce.number().nonnegative().default(0),
-  interventionHours: z.coerce.number().nonnegative().default(0),
-  outputUnits: z.coerce.number().nonnegative().default(0),
-  poundsHarvested: z.coerce.number().nonnegative().default(0),
-  maintenanceIncidents: z.coerce.number().int().nonnegative().default(0),
-  repairCost: z.coerce.number().nonnegative().default(0),
-  sparePartsCost: z.coerce.number().nonnegative().default(0),
-  technicianHours: z.coerce.number().nonnegative().default(0),
-  technicianLaborCost: z.coerce.number().nonnegative().default(0),
-  notes: z.string().optional(),
-});
+const metricSchema = z
+  .object({
+    date: isoDate,
+    robotId: z.string().min(1),
+    deploymentId: z.string().min(1),
+    availableHours: z.coerce.number().nonnegative(),
+    activeHours: z.coerce.number().nonnegative(),
+    productiveHours: z.coerce.number().nonnegative(),
+    downtimeHours: z.coerce.number().nonnegative().default(0),
+    interventionHours: z.coerce.number().nonnegative().default(0),
+    outputUnits: z.coerce.number().nonnegative().default(0),
+    poundsHarvested: z.coerce.number().nonnegative().default(0),
+    maintenanceIncidents: z.coerce.number().int().nonnegative().default(0),
+    repairCost: z.coerce.number().nonnegative().default(0),
+    sparePartsCost: z.coerce.number().nonnegative().default(0),
+    technicianHours: z.coerce.number().nonnegative().default(0),
+    technicianLaborCost: z.coerce.number().nonnegative().default(0),
+    notes: z.string().optional(),
+  })
+  .refine((v) => v.productiveHours <= v.availableHours, {
+    message: "productiveHours cannot exceed availableHours",
+    path: ["productiveHours"],
+  })
+  .refine((v) => v.activeHours <= v.availableHours, {
+    message: "activeHours cannot exceed availableHours",
+    path: ["activeHours"],
+  });
 
 export async function logRobotMetric(formData: FormData) {
   await requireWriteAccess([...OPS_ROLES]);
@@ -44,7 +62,7 @@ export async function logRobotMetric(formData: FormData) {
 
 const costSchema = z.object({
   deploymentId: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDate,
   costType: z.enum(COST_TYPES),
   amount: z.coerce.number().positive(),
   vendor: z.string().optional(),
@@ -62,7 +80,7 @@ export async function logCost(formData: FormData) {
 const laborSchema = z.object({
   deploymentId: z.string().min(1),
   employeeRole: z.string().min(1),
-  date: z.string().min(1),
+  date: isoDate,
   hours: z.coerce.number().positive(),
   hourlyCost: z.coerce.number().positive(),
   taskType: z.string().optional(),
@@ -166,12 +184,12 @@ const invoiceCsvSchema = z.object({
   contractId: z.string().min(1),
   deploymentId: z.string().optional(),
   invoiceNumber: z.string().min(1),
-  invoiceDate: z.string().min(1),
-  dueDate: z.string().min(1),
+  invoiceDate: isoDate,
+  dueDate: isoDate,
   amount: z.coerce.number().positive(),
   status: z.enum(INVOICE_STATUSES).default("sent"),
   amountPaid: z.coerce.number().nonnegative().default(0),
-  paidDate: z.string().optional(),
+  paidDate: isoDate.optional(),
 });
 
 export async function importInvoicesCsv(formData: FormData): Promise<ImportResult> {

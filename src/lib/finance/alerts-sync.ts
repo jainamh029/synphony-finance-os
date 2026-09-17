@@ -6,7 +6,8 @@ import { getCompanyCashSnapshot } from "./runway";
 
 const OPEN_STATUSES = ["open", "acknowledged", "in_progress"];
 
-function keyOf(a: { alertType: string; deploymentId?: string | null; robotId?: string | null }) {
+function keyOf(a: { alertType: string; deploymentId?: string | null; robotId?: string | null; dedupKey?: string | null }) {
+  if (a.dedupKey) return `${a.alertType}::dedup:${a.dedupKey}`;
   return `${a.alertType}::${a.deploymentId ?? ""}::${a.robotId ?? ""}`;
 }
 
@@ -51,6 +52,7 @@ export async function syncAlerts(): Promise<{ created: number; totalOpen: number
       customerId: c.customerId ?? null,
       deploymentId: c.deploymentId ?? null,
       robotId: c.robotId ?? null,
+      dedupKey: c.dedupKey ?? null,
       title: c.title,
       description: c.description,
       recommendedAction: c.recommendedAction,

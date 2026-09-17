@@ -255,6 +255,9 @@ export const alerts = pgTable("alerts", {
   customerId: text("customer_id"),
   deploymentId: text("deployment_id"),
   robotId: text("robot_id"),
+  // Extra uniqueness for alert types where deploymentId+robotId alone can't tell two
+  // candidates apart (e.g. per-invoice overdue alerts). Null for every other alert type.
+  dedupKey: text("dedup_key"),
   title: text("title").notNull(),
   description: text("description").notNull(),
   recommendedAction: text("recommended_action").notNull(),
