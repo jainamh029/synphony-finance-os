@@ -1,0 +1,2 @@
+date,robotId,deploymentId,availableHours,activeHours,productiveHours,downtimeHours,interventionHours,outputUnits,poundsHarvested,maintenanceIncidents,repairCost,sparePartsCost,technicianHours,technicianLaborCost,notes
+2026-09-01,<robot-uuid-from-robots-table>,<deployment-uuid-from-deployments-table>,60,57,48,3,2,2640,2640,0,0,120,8,256,Sample row - replace with real data

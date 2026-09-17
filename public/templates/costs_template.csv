@@ -1,0 +1,2 @@
+deploymentId,date,costType,amount,vendor,notes
+<deployment-uuid-from-deployments-table>,2026-09-01,field_technician_labor,2600,Internal field ops,Sample row - replace with real data

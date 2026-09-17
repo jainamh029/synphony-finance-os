@@ -1,0 +1,2 @@
+customerId,contractType,startDate,endDate,totalContractValue,mobilizationFee,depositAmount,minimumCommitment,variablePricePerUnit,variableUnitType,monthlySubscriptionAmount,expectedOutputVolume,robotsCommitted,paymentTermsDays,customerFundedHardware,slaUptimeTargetPct,status,notes
+<customer-uuid-from-customers-table>,fixed_seasonal,2026-03-01,2026-10-31,300000,20000,30000,300000,,,,2000000,3,30,0,90,active,Sample row - replace with real data

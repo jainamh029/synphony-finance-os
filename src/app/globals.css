@@ -1,26 +1,63 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --color-navy-950: #0b1220;
+  --color-navy-900: #0f1b2d;
+  --color-navy-800: #16263e;
+  --color-navy-700: #1e3350;
+  --color-navy-600: #2a4568;
+  --color-graphite-900: #1c1f26;
+  --color-graphite-700: #3a3f4b;
+  --color-graphite-500: #6b7280;
+  --color-graphite-300: #a7adb8;
+  --color-graphite-100: #e7e9ee;
+  --color-paper: #f7f8fa;
+  --color-white: #ffffff;
+
+  --color-good-bg: #eafaf1;
+  --color-good-text: #0f7a4d;
+  --color-good-border: #b9ecd2;
+
+  --color-warn-bg: #fff8e6;
+  --color-warn-text: #8a5a00;
+  --color-warn-border: #ffe4a3;
+
+  --color-bad-bg: #fdecec;
+  --color-bad-text: #b3261e;
+  --color-bad-border: #f7c3c0;
+
+  --color-accent: #2563eb;
+
+  --background: var(--color-paper);
+  --foreground: var(--color-graphite-900);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-inter);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* Scrollable table containers should never force page-level horizontal scroll */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
 }

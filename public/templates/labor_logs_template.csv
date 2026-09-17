@@ -1,0 +1,2 @@
+deploymentId,employeeRole,date,hours,hourlyCost,taskType
+<deployment-uuid-from-deployments-table>,Field Technician,2026-09-01,8,32,maintenance

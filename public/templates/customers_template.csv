@@ -1,0 +1,2 @@
+farmName,parentOrg,location,cropType,acres,seasonStart,seasonEnd,expectedVolumeLbs,manualLaborCostPerHour,manualLaborCostPerLb,customerOwner,lifecycleStage,notes
+Example Farms LLC,,Salinas CA,Strawberries,100,03-01,10-31,2000000,19.5,0.42,Jane Doe,pilot,Sample row - replace with real data

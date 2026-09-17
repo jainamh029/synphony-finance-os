@@ -1,0 +1,2 @@
+robotCode,model,serialNumber,acquisitionType,acquisitionDate,purchaseCost,usefulLifeMonths,monthlyLeaseCost,warrantyExpiry,notes
+SYN-R100,Synphony Harvester Gen3,SN-100000,manufactured,2026-01-15,48000,48,0,2028-01-15,Sample row - replace with real data

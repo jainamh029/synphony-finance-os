@@ -1,0 +1,2 @@
+contractId,deploymentId,invoiceNumber,invoiceDate,dueDate,amount,status,amountPaid,paidDate
+<contract-uuid-from-contracts-table>,,INV-2001,2026-09-01,2026-10-01,32500,sent,0,
