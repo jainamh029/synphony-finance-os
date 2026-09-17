@@ -9,7 +9,12 @@
  *
  * Run with: npm run db:seed
  */
-import { sqlite, db } from "./client";
+// DATABASE_URL is loaded via `tsx --env-file=.env.local` (see package.json's db:seed script) —
+// not via a top-level `dotenv.config()` call here, because ESM import hoisting runs all
+// `import` statements (including ./client below, which reads process.env.DATABASE_URL at
+// module-load time) before any plain statement in this file, so a same-file dotenv call
+// would run too late regardless of where it's written.
+import { sql, db } from "./client";
 import * as schema from "./schema";
 import { hashPassword } from "@/lib/auth/session";
 import { syncAlerts } from "@/lib/finance/alerts-sync";
@@ -48,7 +53,7 @@ async function main() {
     "deployment_budget_items", "deployments", "pricing_scenarios", "contracts", "robots",
     "customers", "forecast_scenarios", "users", "settings",
   ];
-  for (const t of tableNames) sqlite.exec(`DELETE FROM ${t};`);
+  for (const t of tableNames) await sql.unsafe(`DELETE FROM ${t};`);
 
   const today = new Date("2026-09-17");
 

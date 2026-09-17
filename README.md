@@ -25,6 +25,7 @@ scale, reprice, improve, or pause before committing more robots and capital.
 - [Calculation methodology](#calculation-methodology)
 - [Role-based access](#role-based-access)
 - [Replacing demo data with real Synphony data](#replacing-demo-data-with-real-synphony-data)
+- [Deploying](#deploying)
 - [Testing](#testing)
 - [Known assumptions & limitations](#known-assumptions--limitations)
 - [Feature checklist vs. acceptance criteria](#feature-checklist-vs-acceptance-criteria)
@@ -34,13 +35,16 @@ scale, reprice, improve, or pause before committing more robots and capital.
 
 ## Quick start
 
-Requirements: Node.js 20.9+ (the app was built and tested on Node 25), npm.
+Requirements: Node.js 20.9+ (built and tested on Node 25), npm, and a Postgres database —
+any Postgres works (a free [Neon](https://neon.tech) or [Supabase](https://supabase.com)
+project, Railway Postgres, or a local server).
 
 ```bash
 npm install
-npm run db:push      # creates ./data/synphony.db from the Drizzle schema
-npm run db:seed      # loads 6 customers, 8 contracts, 15 robots, 120+ days of metrics, etc.
-npm run dev          # http://localhost:3000
+cp .env.example .env.local   # then fill in DATABASE_URL
+npm run db:push              # creates every table from the Drizzle schema
+npm run db:seed              # loads 6 customers, 8 contracts, 15 robots, 120+ days of metrics
+npm run dev                  # http://localhost:3000
 ```
 
 Then sign in with any account from [Demo login credentials](#demo-login-credentials).
@@ -53,9 +57,10 @@ npm run build        # production build (Turbopack)
 npm run db:reset     # push schema + reseed in one step (wipes and recreates all demo data)
 ```
 
-There is nothing else to configure — no `.env` is required to run locally. `.env.example`
-documents the variables you'd add if you swap in Postgres or a production auth provider (see
-[Next integrations](#next-three-highest-value-integrations)).
+No local Postgres install? The fastest path is a free [Neon](https://neon.tech) project —
+sign up, create a project, copy its connection string into `.env.local` as `DATABASE_URL`,
+and continue with the commands above. See [Deploying](#deploying) for putting this on a
+public URL.
 
 ## Demo login credentials
 
@@ -72,20 +77,21 @@ Seeded by `npm run db:seed`, password **`synphony2026`** for all of them:
 ## Architecture
 
 **Stack:** Next.js 16 (App Router, Turbopack, React 19) + TypeScript, Tailwind CSS v4,
-Drizzle ORM over SQLite (`better-sqlite3`), Zod validation, Recharts, Vitest.
+Drizzle ORM over Postgres (`postgres.js`), Zod validation, Recharts, Vitest.
 
-This is a deliberately simpler stack than the "Next.js + Postgres + Supabase Auth" target
-architecture described in the original brief — chosen because it removes every external
-service dependency (no database server, no auth provider, no cloud account) while keeping
-the same data model and calculation logic, so it runs from a cold clone with three commands.
-The schema and finance-calculation layer were both written to be swapped onto Postgres +
-Supabase Auth without a rewrite — see [Next integrations](#next-three-highest-value-integrations).
+This is a deliberately simpler stack than the full "Next.js + Postgres + Supabase Auth"
+target architecture described in the original brief in one respect only — auth is a
+first-party cookie session rather than a hosted provider, so there's no third-party account
+to create just to run the app locally. The data model and calculation logic are exactly what
+a Postgres-backed production deployment needs; the app runs against any Postgres (a free Neon
+project, Supabase, Railway, or local). See [Deploying](#deploying) and
+[Next integrations](#next-three-highest-value-integrations).
 
 ```
 src/
   db/
     schema.ts          Drizzle schema — every table in the data dictionary below
-    client.ts           SQLite connection (swap for a Postgres client here)
+    client.ts           Postgres connection (postgres.js + drizzle-orm/postgres-js)
     seed.ts              Demo data generator (deterministic — same seed every run)
   lib/
     finance/
@@ -244,6 +250,50 @@ No code changes are needed:
    (no CSV import wired up for those three yet — see limitations below).
 5. Every seeded row has `is_demo = true`; every row you add through the UI/CSV import has
    `is_demo = false`, so a future "hide demo data" toggle is a one-line filter away.
+
+## Deploying
+
+To share a running instance with coworkers (not just on your own machine), deploy to Vercel
+with a hosted Postgres database. Two accounts to create yourself first (Claude can't create
+accounts on your behalf):
+
+1. **Database — [neon.tech](https://neon.tech)** (free tier): sign up, create a project, copy
+   its connection string (`Dashboard → Connection Details`). It looks like
+   `postgresql://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require`.
+2. **Hosting — [vercel.com](https://vercel.com)** (free tier): sign up, connect your GitHub
+   account.
+
+Then, from your terminal:
+
+```bash
+npx vercel login        # opens a browser to authenticate — do this yourself
+npx vercel link         # links this folder to a new (or existing) Vercel project
+npx vercel env add DATABASE_URL production   # paste the Neon connection string when prompted
+```
+
+Push the schema and demo data to the *production* database (point `.env.local` at the same
+Neon connection string temporarily, or pass it inline):
+
+```bash
+DATABASE_URL="<your neon connection string>" npm run db:push
+DATABASE_URL="<your neon connection string>" npm run db:seed
+```
+
+Then deploy:
+
+```bash
+npx vercel --prod
+```
+
+Vercel prints the live URL when it finishes — that's what you share. Every subsequent
+`git push` to the connected repo's default branch redeploys automatically once the project is
+linked; `npx vercel --prod` redeploys on demand from your local working copy.
+
+**Why Postgres and not the demo's local file storage:** Vercel's serverless functions don't
+have a persistent local disk between invocations, so a locally-written database file would
+reset (or corrupt under concurrent access) on every request. This is exactly the schema this
+app already uses — no code changes, only the connection string differs between a local
+Postgres and a hosted one.
 
 ## Testing
 

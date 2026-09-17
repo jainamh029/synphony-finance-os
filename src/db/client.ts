@@ -1,24 +1,24 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import path from "path";
-import fs from "fs";
+import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "./schema";
 
-const dataDir = path.join(process.cwd(), "data");
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
-const dbPath = path.join(dataDir, "synphony.db");
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error(
+    "DATABASE_URL is not set. Create a free Postgres database (e.g. https://neon.tech), " +
+      "copy its connection string into .env.local as DATABASE_URL, then run `npm run db:push && npm run db:seed`. " +
+      "See README.md > Deploying with Postgres."
+  );
+}
 
 declare global {
   // eslint-disable-next-line no-var
-  var __synphonySqlite: Database.Database | undefined;
+  var __synphonyPg: ReturnType<typeof postgres> | undefined;
 }
 
-const sqlite = global.__synphonySqlite ?? new Database(dbPath);
-if (process.env.NODE_ENV !== "production") global.__synphonySqlite = sqlite;
+// Reuse the connection across hot-reloads in dev so we don't exhaust the pool.
+const client = global.__synphonyPg ?? postgres(connectionString, { prepare: false });
+if (process.env.NODE_ENV !== "production") global.__synphonyPg = client;
 
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
-
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+export const db = drizzle(client, { schema });
+export { client as sql };
