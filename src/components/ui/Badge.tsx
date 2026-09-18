@@ -1,4 +1,4 @@
-type Tone = "good" | "warn" | "bad" | "neutral" | "info";
+export type Tone = "good" | "warn" | "bad" | "neutral" | "info";
 
 const toneClasses: Record<Tone, string> = {
   good: "bg-[var(--color-good-bg)] text-[var(--color-good-text)] border-[var(--color-good-border)]",

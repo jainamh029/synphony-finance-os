@@ -69,7 +69,11 @@ export async function getDeploymentRollups(): Promise<DeploymentRollup[]> {
     const depCosts = allCosts.filter((c) => c.deploymentId === dep.id);
     const actualDirectCost = depCosts.reduce((sum, c) => sum + c.amount, 0);
 
-    const budgetItems = allBudgetItems.filter((b) => b.deploymentId === dep.id);
+    // Budget items are versioned copy-on-write (Gap D) — every draft and superseded version's
+    // rows stay in the table for history, so "the plan" is only ever the isApproved rows.
+    // Summing all rows here would double-count as soon as a deployment has more than one
+    // budget version.
+    const budgetItems = allBudgetItems.filter((b) => b.deploymentId === dep.id && b.isApproved);
     const plannedDirectCost = budgetItems.reduce((sum, b) => sum + b.plannedAmount, 0);
     const plannedUpfrontCost = budgetItems.filter((b) => b.isUpfront).reduce((sum, b) => sum + b.plannedAmount, 0);
     const costVariancePct = plannedDirectCost > 0 ? ((actualDirectCost - plannedDirectCost) / plannedDirectCost) * 100 : null;
@@ -212,7 +216,7 @@ export async function getRobotRollups(): Promise<RobotRollup[]> {
 
     const activeAssignment = allAssignments.find((a) => a.robotId === robot.id && !a.assignmentEnd);
     let revenueAllocated = 0;
-    let costAllocated = fleet.repairCost + fleet.sparePartsCost + fleet.technicianLaborCost;
+    const costAllocated = fleet.repairCost + fleet.sparePartsCost + fleet.technicianLaborCost;
 
     if (activeAssignment) {
       const dep = depMap.get(activeAssignment.deploymentId);
@@ -270,7 +274,8 @@ export async function getDeploymentDetail(deploymentId: string): Promise<Deploym
   const rollup = rollups.find((d) => d.deploymentId === deploymentId);
   if (!rollup) return null;
 
-  const budgetItems = await db.select().from(deploymentBudgetItems).where(eq(deploymentBudgetItems.deploymentId, deploymentId));
+  const allBudgetItemVersions = await db.select().from(deploymentBudgetItems).where(eq(deploymentBudgetItems.deploymentId, deploymentId));
+  const budgetItems = allBudgetItemVersions.filter((b) => b.isApproved);
   const depCosts = await db.select().from(costs).where(eq(costs.deploymentId, deploymentId));
   const depInvoices = await db.select().from(invoices).where(eq(invoices.deploymentId, deploymentId));
   const assignments = await db.select().from(robotAssignments).where(eq(robotAssignments.deploymentId, deploymentId));

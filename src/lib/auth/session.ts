@@ -3,6 +3,12 @@ import { db } from "@/db/client";
 import { users, type Role } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import { isReadOnly } from "./permissions";
+
+// Role capability helpers are pure (no `db`/`cookies` import) and live in permissions.ts so
+// they're unit-testable from vitest; re-exported here so existing imports from
+// "@/lib/auth/session" keep working unchanged.
+export { canEditFinanceAssumptions, canEditOperations, canEditSales, isReadOnly } from "./permissions";
 
 const SESSION_COOKIE = "synphony_session";
 
@@ -51,20 +57,6 @@ export async function verifyLogin(email: string, password: string): Promise<Sess
 
 export function hashPassword(password: string): string {
   return bcrypt.hashSync(password, 10);
-}
-
-// Role capability helpers -----------------------------------------------------
-export function canEditFinanceAssumptions(role: Role): boolean {
-  return role === "admin" || role === "finance";
-}
-export function canEditOperations(role: Role): boolean {
-  return role === "admin" || role === "operations" || role === "finance";
-}
-export function canEditSales(role: Role): boolean {
-  return role === "admin" || role === "sales" || role === "finance";
-}
-export function isReadOnly(role: Role): boolean {
-  return role === "viewer";
 }
 
 /**

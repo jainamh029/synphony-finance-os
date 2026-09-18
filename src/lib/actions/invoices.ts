@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireWriteAccess } from "@/lib/auth/session";
+import { validatePayment } from "@/lib/domain/payments";
 
 const FINANCE_ROLES = ["admin", "finance"] as const;
 
@@ -51,20 +52,12 @@ export async function recordPayment(invoiceId: string, formData: FormData) {
   // amountPaid past the invoice's own amount must be rejected outright rather than silently
   // capped (capping would discard the entered figure without telling the user why, which can
   // mask a genuine data-entry error) — see acceptance test 7's payment-cap requirement.
-  const remainingBalance = inv.amount - inv.amountPaid;
-  if (parsed.amountPaid > remainingBalance + 0.01) {
-    throw new Error(
-      `Payment of $${parsed.amountPaid.toLocaleString()} exceeds the remaining balance of $${remainingBalance.toLocaleString()} on this invoice. ` +
-        `Overpayments aren't supported yet — record a payment up to the remaining balance, or void/adjust the invoice first.`
-    );
-  }
-
-  const totalPaid = inv.amountPaid + parsed.amountPaid;
-  const status = totalPaid >= inv.amount ? "paid" : totalPaid > 0 ? "partial" : inv.status;
+  const validation = validatePayment(inv, parsed.amountPaid);
+  if (!validation.ok) throw new Error(validation.error);
 
   await db
     .update(invoices)
-    .set({ amountPaid: totalPaid, paidDate: parsed.paidDate, status, updatedAt: new Date().toISOString() })
+    .set({ amountPaid: validation.totalPaid, paidDate: parsed.paidDate, status: validation.status, updatedAt: new Date().toISOString() })
     .where(eq(invoices.id, invoiceId));
 
   revalidatePath("/invoices");

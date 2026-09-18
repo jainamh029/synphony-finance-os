@@ -1,0 +1,2 @@
+customerId,contractId,name,status,plannedStartDate,plannedEndDate,actualStartDate,actualEndDate,robotsPlanned,expectedOperatingHours,expectedOutputVolume,expectedTechnicianHours,expectedUptimePct,expectedUtilizationPct,operationsOwner,financeOwner,notes
+<customer-uuid-from-customers-table>,<contract-uuid-from-contracts-table>,Example Farms — Main Ranch Deployment,planned,2026-03-01,2026-10-31,,,3,2250,2000000,300,90,70,Jane Ops,John Finance,Sample row - replace with real data

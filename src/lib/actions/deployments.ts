@@ -7,6 +7,8 @@ import { eq, and, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireWriteAccess } from "@/lib/auth/session";
+import { validateRobotAssignment } from "@/lib/domain/robotAssignment";
+import { syncCustomerLifecycle } from "@/lib/domain/customerLifecycleSync";
 
 const OPS_ROLES = ["admin", "operations", "finance"] as const;
 
@@ -28,7 +30,7 @@ const deploymentSchema = z.object({
 });
 
 export async function createDeployment(formData: FormData) {
-  await requireWriteAccess([...OPS_ROLES]);
+  const session = await requireWriteAccess([...OPS_ROLES]);
   const parsed = deploymentSchema.parse(Object.fromEntries(formData));
 
   const budgetEntries: { category: (typeof BUDGET_CATEGORIES)[number]; amount: number; upfront: boolean }[] = [];
@@ -46,25 +48,33 @@ export async function createDeployment(formData: FormData) {
     .returning();
 
   if (budgetEntries.length > 0) {
+    // v1 is the initial plan — approved by default so investment-case / P&L comparisons have
+    // something to compare against immediately, without a separate "approve the first draft"
+    // step. Later revisions (Gap D) are drafts until explicitly approved.
     await db.insert(deploymentBudgetItems).values(
-      budgetEntries.map((b) => ({ id: crypto.randomUUID(), deploymentId: dep.id, category: b.category, plannedAmount: b.amount, isUpfront: b.upfront }))
+      budgetEntries.map((b) => ({
+        id: crypto.randomUUID(), deploymentId: dep.id, category: b.category, plannedAmount: b.amount, isUpfront: b.upfront,
+        version: 1, isApproved: true, createdBy: session.email,
+      }))
     );
   }
 
+  await syncCustomerLifecycle(parsed.customerId, "deployment", dep.id, session.email);
   revalidatePath("/deployments");
   redirect(`/deployments/${dep.id}`);
 }
 
 export async function updateDeploymentStatus(deploymentId: string, formData: FormData) {
-  await requireWriteAccess([...OPS_ROLES]);
+  const session = await requireWriteAccess([...OPS_ROLES]);
   const status = String(formData.get("status")) as (typeof DEPLOYMENT_STATUSES)[number];
+  const [dep] = await db.select().from(deployments).where(eq(deployments.id, deploymentId));
   const patch: Partial<typeof deployments.$inferInsert> = { status, updatedAt: new Date().toISOString() };
   if (status === "active" || status === "deploying") {
-    const [dep] = await db.select().from(deployments).where(eq(deployments.id, deploymentId));
     if (dep && !dep.actualStartDate) patch.actualStartDate = new Date().toISOString().slice(0, 10);
   }
   if (status === "completed") patch.actualEndDate = new Date().toISOString().slice(0, 10);
   await db.update(deployments).set(patch).where(eq(deployments.id, deploymentId));
+  if (dep) await syncCustomerLifecycle(dep.customerId, "deployment", deploymentId, session.email);
   revalidatePath(`/deployments/${deploymentId}`);
   revalidatePath("/deployments");
 }
@@ -91,13 +101,8 @@ export async function assignRobot(deploymentId: string, formData: FormData) {
   // reassigning it requires an explicit Unassign first, which is the "defined allocation
   // rule" — not a silent reassignment that quietly drops it from its current deployment.
   const [robot] = await db.select().from(robots).where(eq(robots.id, robotId));
-  if (!robot) throw new Error("Robot not found.");
-  if (robot.status !== "available" && robot.status !== "idle") {
-    throw new Error(
-      `Cannot assign ${robot.robotCode}: it is currently "${robot.status}", not available. ` +
-        `Unassign it from its current deployment first if this reassignment is intentional.`
-    );
-  }
+  const validation = validateRobotAssignment(robot ?? null);
+  if (!validation.ok) throw new Error(validation.error);
 
   // Defensive cleanup only — the status gate above is what actually prevents double-booking.
   // This just closes any stray open assignment row that could exist if a robot's status was

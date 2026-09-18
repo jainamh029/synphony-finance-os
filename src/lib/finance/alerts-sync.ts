@@ -3,19 +3,15 @@ import { alerts as alertsTable } from "@/db/schema";
 import { getDeploymentRollups, getRobotRollups, getArAging } from "./aggregate";
 import { evaluateDeploymentAlerts, evaluateRobotAlerts, evaluateArAlerts, evaluateCapacityAlert, evaluateRunwayAlert, type AlertCandidate } from "./alerts-engine";
 import { getCompanyCashSnapshot } from "./runway";
-
-const OPEN_STATUSES = ["open", "acknowledged", "in_progress"];
-
-function keyOf(a: { alertType: string; deploymentId?: string | null; robotId?: string | null; dedupKey?: string | null }) {
-  if (a.dedupKey) return `${a.alertType}::dedup:${a.dedupKey}`;
-  return `${a.alertType}::${a.deploymentId ?? ""}::${a.robotId ?? ""}`;
-}
+import { selectNewAlertCandidates, OPEN_STATUSES } from "@/lib/domain/alertDedup";
 
 /**
  * Recomputes every alert rule against current data and inserts any newly-triggered
  * condition that isn't already tracked by an open alert. Existing open/acknowledged/
  * in-progress alerts are left untouched (so owner assignment and comments survive);
  * resolved/dismissed alerts are only re-created if the underlying condition recurs.
+ * The actual "which candidates are new" decision lives in the pure, unit-tested
+ * selectNewAlertCandidates() — this function is just the DB-touching wrapper around it.
  */
 export async function syncAlerts(): Promise<{ created: number; totalOpen: number }> {
   const [deploymentRollups, robotRollups, arRows, cash] = await Promise.all([
@@ -39,11 +35,9 @@ export async function syncAlerts(): Promise<{ created: number; totalOpen: number
   if (runwayAlert) candidates.push(runwayAlert);
 
   const existing = await db.select().from(alertsTable);
-  const existingOpenKeys = new Set(existing.filter((a) => OPEN_STATUSES.includes(a.status)).map(keyOf));
+  const toInsert = selectNewAlertCandidates(candidates, existing);
 
-  let created = 0;
-  for (const c of candidates) {
-    if (existingOpenKeys.has(keyOf(c))) continue;
+  for (const c of toInsert) {
     await db.insert(alertsTable).values({
       id: crypto.randomUUID(),
       alertType: c.alertType,
@@ -60,9 +54,8 @@ export async function syncAlerts(): Promise<{ created: number; totalOpen: number
       owner: null,
       status: "open",
     });
-    created++;
   }
 
-  const totalOpen = existing.filter((a) => OPEN_STATUSES.includes(a.status)).length + created;
-  return { created, totalOpen };
+  const totalOpen = existing.filter((a) => (OPEN_STATUSES as readonly string[]).includes(a.status)).length + toInsert.length;
+  return { created: toInsert.length, totalOpen };
 }

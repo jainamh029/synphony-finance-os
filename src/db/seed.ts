@@ -50,8 +50,9 @@ async function main() {
   console.log("Resetting database...");
   const tableNames = [
     "alerts", "costs", "labor_logs", "robot_metrics", "robot_assignments", "invoices",
-    "deployment_budget_items", "deployments", "pricing_scenarios", "contracts", "robots",
-    "customers", "forecast_scenarios", "users", "settings",
+    "deployment_investment_cases", "deployment_budget_items", "deployments",
+    "pricing_scenarios", "invoice_schedule_items", "contracts", "robots",
+    "customer_lifecycle_history", "customers", "forecast_scenarios", "users", "settings",
   ];
   for (const t of tableNames) await sql.unsafe(`DELETE FROM ${t};`);
 
@@ -322,7 +323,10 @@ async function main() {
   const budgetRows: (typeof schema.deploymentBudgetItems.$inferInsert)[] = [];
   function addBudget(depId: string, items: [BudgetCategory, number, boolean][]) {
     for (const [category, amount, upfront] of items) {
-      budgetRows.push({ id: id(), deploymentId: depId, category, plannedAmount: amount, isUpfront: upfront });
+      budgetRows.push({
+        id: id(), deploymentId: depId, category, plannedAmount: amount, isUpfront: upfront,
+        version: 1, isApproved: true, createdBy: "system@seed",
+      });
     }
   }
   addBudget(depValleyCrest, [

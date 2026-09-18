@@ -28,8 +28,9 @@ export const users = pgTable("users", {
 // Customers (farms)
 // ---------------------------------------------------------------------------
 export const LIFECYCLE_STAGES = [
-  "lead", "qualified", "pilot", "contracted", "deploying", "active", "renewal", "paused", "churned",
+  "lead", "qualified", "pilot", "contracted", "deploying", "active", "renewal", "paused", "churned", "archived",
 ] as const;
+export const LIFECYCLE_SOURCES = ["automatic", "manual"] as const;
 
 export const customers = pgTable("customers", {
   id: id(),
@@ -45,9 +46,27 @@ export const customers = pgTable("customers", {
   manualLaborCostPerLb: doublePrecision("manual_labor_cost_per_lb"),
   customerOwner: text("customer_owner"),
   lifecycleStage: text("lifecycle_stage").$type<(typeof LIFECYCLE_STAGES)[number]>().notNull().default("lead"),
+  // "automatic" (default): lifecycleStage is recomputed after contract/deployment changes.
+  // "manual": a person explicitly set the stage; automatic recompute is skipped until
+  // someone clicks "Return to automatic" on the customer page.
+  lifecycleSource: text("lifecycle_source").$type<(typeof LIFECYCLE_SOURCES)[number]>().notNull().default("automatic"),
+  churnReason: text("churn_reason"),
   notes: text("notes"),
   isDemo: boolean("is_demo").notNull().default(true),
   ...timestamps,
+});
+
+export const customerLifecycleHistory = pgTable("customer_lifecycle_history", {
+  id: id(),
+  customerId: text("customer_id").notNull().references(() => customers.id),
+  previousStage: text("previous_stage").$type<(typeof LIFECYCLE_STAGES)[number] | null>(),
+  newStage: text("new_stage").$type<(typeof LIFECYCLE_STAGES)[number]>().notNull(),
+  source: text("source").$type<(typeof LIFECYCLE_SOURCES)[number]>().notNull(),
+  triggeringRecordType: text("triggering_record_type"), // "contract" | "deployment" | "manual" | "contract_import" | ...
+  triggeringRecordId: text("triggering_record_id"),
+  actor: text("actor"), // user email/name, or "system" for automatic transitions
+  reason: text("reason"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 // ---------------------------------------------------------------------------
@@ -56,7 +75,25 @@ export const customers = pgTable("customers", {
 export const CONTRACT_TYPES = [
   "pilot", "fixed_seasonal", "per_robot_hour", "per_pound", "per_acre", "raas_subscription", "software_subscription", "hybrid",
 ] as const;
-export const CONTRACT_STATUSES = ["draft", "active", "completed", "terminated", "renewed"] as const;
+// "terminated" and "renewed" are kept alongside the fuller lifecycle set below for backward
+// compatibility with existing seeded/demo rows — "cancelled" is the new preferred term for a
+// contract ended early, "terminated" is treated as a synonym everywhere status is checked.
+export const CONTRACT_STATUSES = [
+  "draft", "in_review", "active", "completed", "cancelled", "expired", "archived", "terminated", "renewed",
+] as const;
+export const BILLING_FREQUENCIES = ["upfront", "monthly", "quarterly", "milestone", "end_of_season", "usage_based"] as const;
+export const PAYMENT_TERMS = ["due_on_receipt", "net_15", "net_30", "net_45", "net_60"] as const;
+
+export function paymentTermsDaysFor(terms: (typeof PAYMENT_TERMS)[number] | null | undefined): number {
+  switch (terms) {
+    case "due_on_receipt": return 0;
+    case "net_15": return 15;
+    case "net_45": return 45;
+    case "net_60": return 60;
+    case "net_30":
+    default: return 30;
+  }
+}
 
 export const contracts = pgTable("contracts", {
   id: id(),
@@ -78,8 +115,41 @@ export const contracts = pgTable("contracts", {
   renewalLikelihoodPct: doublePrecision("renewal_likelihood_pct"),
   status: text("status").$type<(typeof CONTRACT_STATUSES)[number]>().notNull().default("active"),
   slaUptimeTargetPct: doublePrecision("sla_uptime_target_pct").default(85),
+  billingFrequency: text("billing_frequency").$type<(typeof BILLING_FREQUENCIES)[number]>().notNull().default("monthly"),
+  paymentTerms: text("payment_terms").$type<(typeof PAYMENT_TERMS)[number]>().notNull().default("net_30"),
+  depositPct: doublePrecision("deposit_pct"), // alternative to a flat depositAmount; if set, deposit = totalContractValue * depositPct/100
+  // Bumped on any change to terms that would materially change the billing schedule
+  // (value, dates, fees, pricing) — schedule items store the version they were generated
+  // from, so a stale schedule can be detected without a full contract-history table.
+  contractVersion: integer("contract_version").notNull().default(1),
   notes: text("notes"),
   isDemo: boolean("is_demo").notNull().default(true),
+  ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
+// Invoice schedule (Gap A) — a forward-looking billing plan derived from contract terms.
+// Scheduled/draft lines are NOT revenue, invoiced amount, or cash collected; only a row in
+// `invoices` (linked via issuedInvoiceId once issued) counts toward those.
+// ---------------------------------------------------------------------------
+export const SCHEDULE_LINE_TYPES = ["deposit", "mobilization", "recurring", "minimum", "usage", "milestone", "other"] as const;
+export const SCHEDULE_ITEM_STATUSES = ["scheduled", "draft", "issued", "paid", "void", "cancelled", "superseded"] as const;
+
+export const invoiceScheduleItems = pgTable("invoice_schedule_items", {
+  id: id(),
+  contractId: text("contract_id").notNull().references(() => contracts.id),
+  lineType: text("line_type").$type<(typeof SCHEDULE_LINE_TYPES)[number]>().notNull(),
+  description: text("description").notNull(),
+  plannedAmount: doublePrecision("planned_amount").notNull(),
+  plannedInvoiceDate: text("planned_invoice_date").notNull(),
+  plannedDueDate: text("planned_due_date").notNull(),
+  status: text("status").$type<(typeof SCHEDULE_ITEM_STATUSES)[number]>().notNull().default("scheduled"),
+  issuedInvoiceId: text("issued_invoice_id"), // set once "Issue Invoice" is used on this line
+  scheduleVersion: integer("schedule_version").notNull().default(1),
+  sourceContractVersion: integer("source_contract_version").notNull(),
+  generatedBy: text("generated_by"), // user email, or "system"
+  generatedAt: text("generated_at").notNull().$defaultFn(() => new Date().toISOString()),
+  notes: text("notes"),
   ...timestamps,
 });
 
@@ -138,17 +208,58 @@ export const deployments = pgTable("deployments", {
 export const BUDGET_CATEGORIES = [
   "robot_depreciation", "procurement_allocation", "shipping_install", "field_technician_labor",
   "operator_labor", "engineering_support", "maintenance", "spare_parts", "repairs", "travel",
-  "lodging", "insurance", "cloud_compute", "data_storage", "software_tools", "customer_integration", "other",
+  "lodging", "insurance", "cloud_compute", "data_storage", "software_tools", "customer_integration",
+  "contingency", "other",
 ] as const;
 
+// Budgets are versioned copy-on-write (Gap D): editing never mutates an approved version's
+// rows in place — it inserts a new draft version. `isApproved` marks the version currently
+// treated as "the plan" for P&L/investment-case comparisons; at most one version per
+// deployment should be approved at a time (enforced in the action layer, not a DB
+// constraint, since a version is a set of rows, not a single row).
 export const deploymentBudgetItems = pgTable("deployment_budget_items", {
   id: id(),
   deploymentId: text("deployment_id").notNull().references(() => deployments.id),
   category: text("category").$type<(typeof BUDGET_CATEGORIES)[number]>().notNull(),
   plannedAmount: doublePrecision("planned_amount").notNull().default(0),
   isUpfront: boolean("is_upfront").notNull().default(false),
+  version: integer("version").notNull().default(1),
+  isApproved: boolean("is_approved").notNull().default(false),
+  supersededAt: text("superseded_at"),
+  changeReason: text("change_reason"),
+  createdBy: text("created_by"),
   notes: text("notes"),
   ...timestamps,
+});
+
+// ---------------------------------------------------------------------------
+// Pre-deployment investment case & approval workflow (Gap C)
+// ---------------------------------------------------------------------------
+export const INVESTMENT_CASE_STATUSES = [
+  "draft", "submitted", "needs_repricing", "needs_revision", "approved", "rejected", "deferred", "superseded",
+] as const;
+
+export const deploymentInvestmentCases = pgTable("deployment_investment_cases", {
+  id: id(),
+  deploymentId: text("deployment_id").notNull().references(() => deployments.id),
+  version: integer("version").notNull().default(1),
+  status: text("status").$type<(typeof INVESTMENT_CASE_STATUSES)[number]>().notNull().default("draft"),
+  scenario: text("scenario").$type<"conservative" | "base" | "aggressive">().notNull().default("base"),
+  // Assumptions (inputs) and computed outputs are stored as JSON snapshots rather than one
+  // column per field — the same tradeoff calculations.ts's RoiInputs/RoiOutputs already
+  // makes for pricing scenarios. Once approved, both are frozen (see `isImmutable`).
+  assumptionsJson: text("assumptions_json").notNull(),
+  outputsJson: text("outputs_json").notNull(),
+  isImmutable: boolean("is_immutable").notNull().default(false),
+  submittedBy: text("submitted_by"),
+  submittedAt: text("submitted_at"),
+  decidedBy: text("decided_by"),
+  decidedAt: text("decided_at"),
+  overrideReason: text("override_reason"), // required when approved despite failing a threshold
+  thresholdFailuresJson: text("threshold_failures_json"), // which finance rules failed at decision time, if any
+  decisionNote: text("decision_note"),
+  createdAt: text("created_at").notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at").notNull().$defaultFn(() => new Date().toISOString()),
 });
 
 // ---------------------------------------------------------------------------
